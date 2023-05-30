@@ -1,5 +1,6 @@
 package com.miku.bubble.service.impl;
 
+import cn.hutool.core.bean.BeanUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.miku.bubble.common.ErrorCode;
@@ -10,10 +11,12 @@ import com.miku.bubble.model.entity.User;
 import com.miku.bubble.model.entity.UserTeam;
 import com.miku.bubble.model.enums.TeamStatusEnum;
 import com.miku.bubble.model.request.TeamQuery;
+import com.miku.bubble.model.request.TeamUpdateRequest;
 import com.miku.bubble.model.vo.TeamUserVO;
+import com.miku.bubble.model.vo.UserVO;
 import com.miku.bubble.service.TeamService;
+import com.miku.bubble.service.UserService;
 import com.miku.bubble.service.UserTeamService;
-import io.swagger.models.auth.In;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.BeanUtils;
@@ -21,6 +24,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import javax.annotation.Resource;
+import javax.servlet.http.HttpServletRequest;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
@@ -35,7 +39,9 @@ import java.util.Optional;
 public class TeamServiceImpl extends ServiceImpl<TeamMapper, Team> implements TeamService {
 
     @Resource
-    UserTeamService userTeamService;
+    private UserTeamService userTeamService;
+    @Resource
+    private UserService userService;
 
     @Override
     public void validTeam(Team team, boolean add) {
@@ -139,12 +145,16 @@ public class TeamServiceImpl extends ServiceImpl<TeamMapper, Team> implements Te
     }
 
     @Override
-    public List<TeamUserVO> listTeams(TeamQuery teamQuery) {
+    public List<TeamUserVO> listTeams(TeamQuery teamQuery, boolean isAdmin) {
         LambdaQueryWrapper<Team> queryWrapper = new LambdaQueryWrapper<>();
         if (teamQuery != null) {
             Long id = teamQuery.getId();
             if (id != null && id > 0) {
                 queryWrapper.eq(Team::getId, id);
+            }
+            String searchText = teamQuery.getSearchText();
+            if (StringUtils.isNotBlank(searchText)) {
+                queryWrapper.and(qw -> qw.like(Team::getSearchText, searchText).or().like(Team::getDescription, searchText));
             }
             String name = teamQuery.getName();
             if (StringUtils.isNotBlank(name)) {
@@ -166,21 +176,68 @@ public class TeamServiceImpl extends ServiceImpl<TeamMapper, Team> implements Te
             }
             // 根据状态来查询
             Integer status = teamQuery.getStatus();
-            if (status != null && status > -1) {
-                queryWrapper.eq(Team::getStatus, status);
+            TeamStatusEnum statusEnum = TeamStatusEnum.getEnumByValue(status);
+            if (statusEnum == null) {
+                statusEnum = TeamStatusEnum.PUBLIC;
             }
-            List<Team> teamList = this.list(queryWrapper);
-            if (CollectionUtils.isEmpty(teamList)){
-                return new ArrayList<>();
+            if (!isAdmin && statusEnum.equals(TeamStatusEnum.PUBLIC)) {
+                throw new BusinessException(ErrorCode.NO_AUTH_ERROR);
             }
-        }
-        Team team = new Team();
-        BeanUtils.copyProperties(team, teamQuery);
+            queryWrapper.eq(Team::getStatus, statusEnum.getValue());
 
-        return null;
+        }
+        // 不展示已经过期的队伍
+        queryWrapper.and(qw -> qw.gt(Team::getExpireTime, new Date()).or().isNull(Team::getExpireTime));
+
+        List<TeamUserVO> teamUserVOList = new ArrayList<>();
+        List<Team> teamList = this.list(queryWrapper);
+        if (CollectionUtils.isEmpty(teamList)) {
+            return new ArrayList<>();
+        }
+        // 关联查询用户信息
+        for (Team team : teamList) {
+            Long userId = team.getUserId();
+            if (userId == null || userId <= 0) {
+                continue;
+            }
+            User user = userService.getById(userId);
+            TeamUserVO teamUserVO = new TeamUserVO();
+            BeanUtil.copyProperties(team, teamUserVO);
+            if (user != null) {
+                UserVO userVO = new UserVO();
+                BeanUtil.copyProperties(user, userVO);
+                teamUserVO.setCreateUser(userVO);
+            }
+            teamUserVOList.add(teamUserVO);
+        }
+        // 查询队伍和创建人信息
+        // select * from team t left join on user uon t.userId = u.id
+        // 查询队伍和已加入队伍的队员信息
+        // select * from team t join user_team ut on t.id = user_team.teamId
+        return teamUserVOList;
+    }
+
+    @Override
+    public boolean updateTeam(TeamUpdateRequest teamUpdateRequest, HttpServletRequest request) {
+        Team team = new Team();
+        BeanUtils.copyProperties(teamUpdateRequest, team);
+        // 参数校验
+        this.validTeam(team, false);
+        User user = userService.getLoginUser(request);
+        long id = teamUpdateRequest.getId();
+        // 判断是否存在
+        Team oldTeam = this.getById(id);
+        if (oldTeam == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND_ERROR);
+        }
+        // 如果传入了密码 则直接把队伍改成加密状态
+        if (StringUtils.isNotBlank(teamUpdateRequest.getPassword())) {
+            teamUpdateRequest.setStatus(TeamStatusEnum.SECRET.getValue());
+        }
+        // 仅本人或管理员可修改
+        if (!oldTeam.getUserId().equals(user.getId()) && !userService.isAdmin(request)) {
+            throw new BusinessException(ErrorCode.NO_AUTH_ERROR);
+        }
+        return this.updateById(team);
     }
 }
-
-
-
-

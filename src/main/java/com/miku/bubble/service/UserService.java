@@ -3,6 +3,7 @@ package com.miku.bubble.service;
 
 import com.baomidou.mybatisplus.extension.service.IService;
 import com.miku.bubble.model.entity.User;
+import com.miku.bubble.model.request.TeamUpdateRequest;
 
 import javax.servlet.http.HttpServletRequest;
 import java.util.List;
@@ -64,5 +65,10 @@ public interface UserService extends IService<User> {
      */
     boolean userLogout(HttpServletRequest request);
 
+    /**
+     * 通过标签查询用户
+     * @param tagNameList
+     * @return
+     */
     List<User> searchUsersByTags(List<String> tagNameList);
 }

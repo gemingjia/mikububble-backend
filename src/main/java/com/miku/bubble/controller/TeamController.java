@@ -1,6 +1,5 @@
 package com.miku.bubble.controller;
 
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.miku.bubble.common.BaseResponse;
@@ -106,22 +105,7 @@ public class TeamController {
         if (teamUpdateRequest == null || teamUpdateRequest.getId() <= 0) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
-        Team team = new Team();
-        BeanUtils.copyProperties(teamUpdateRequest, team);
-        // 参数校验
-        teamService.validTeam(team, false);
-        User user = userService.getLoginUser(request);
-        long id = teamUpdateRequest.getId();
-        // 判断是否存在
-        Team oldTeam = teamService.getById(id);
-        if (oldTeam == null) {
-            throw new BusinessException(ErrorCode.NOT_FOUND_ERROR);
-        }
-        // 仅本人或管理员可修改
-        if (!oldTeam.getUserId().equals(user.getId()) && !userService.isAdmin(request)) {
-            throw new BusinessException(ErrorCode.NO_AUTH_ERROR);
-        }
-        boolean result = teamService.updateById(team);
+        boolean result = teamService.updateTeam(teamUpdateRequest, request);
         return ResultUtils.success(result);
     }
 
@@ -147,11 +131,12 @@ public class TeamController {
      * @return
      */
     @GetMapping("/list")
-    public BaseResponse<List<TeamUserVO>> listTeam(TeamQuery teamQuery) {
+    public BaseResponse<List<TeamUserVO>> listTeam(TeamQuery teamQuery, HttpServletRequest request) {
         if (teamQuery == null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
-        List<TeamUserVO> teamList = teamService.listTeams(teamQuery);
+        boolean admin = userService.isAdmin(request);
+        List<TeamUserVO> teamList = teamService.listTeams(teamQuery, admin);
         return ResultUtils.success(teamList);
     }
 

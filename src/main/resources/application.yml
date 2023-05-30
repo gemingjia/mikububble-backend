@@ -7,8 +7,8 @@ spring:
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
     url: jdbc:mysql://localhost:3306/mikububble_db
-    username: root
-    password: gmjqq741
+    username: { username }
+    password: { password }
   mvc:
     pathmatch:
       matching-strategy: ANT_PATH_MATCHER
@@ -19,9 +19,9 @@ spring:
   # redis 配置
   redis:
     port: 6379
-    host: 49.232.162.89
+    host: { ip }
     database: 2
-    password: gmjqq741
+    password: {password}
 server:
   port: 7529
   servlet:
